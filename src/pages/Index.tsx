@@ -96,36 +96,73 @@ export default function Index() {
   const uploadFile = async (file: File) => {
     setUploading(true);
     setUploadProgress(`Загружаю: ${file.name}`);
-    try {
-      const fileData: string = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          resolve(result.split(",")[1]);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
 
-      const res = await fetch(API_URL, {
+    // Чанки по 400 КБ (до base64 — ~300 КБ бинарных данных)
+    const CHUNK_SIZE = 300 * 1024;
+    let uploadKey = "";
+    let uploadId = "";
+
+    try {
+      // 1. Старт multipart upload
+      const startRes = await fetch(`${API_URL}?action=start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          file_data: fileData,
           file_name: file.name,
           file_type: file.type || "application/octet-stream",
         }),
       });
+      const startData = await startRes.json();
+      uploadKey = startData.key;
+      uploadId = startData.upload_id;
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        console.error("Ошибка загрузки:", data);
-        return;
+      // 2. Загружаем чанки
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      const parts: { part_number: number; etag: string }[] = [];
+
+      for (let i = 0; i < totalChunks; i++) {
+        const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        setUploadProgress(`${file.name}: ${Math.round(((i + 1) / totalChunks) * 100)}%`);
+
+        const chunkB64: string = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string).split(",")[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(chunk);
+        });
+
+        const chunkRes = await fetch(`${API_URL}?action=chunk`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: uploadKey,
+            upload_id: uploadId,
+            part_number: i + 1,
+            chunk_data: chunkB64,
+          }),
+        });
+        const chunkData = await chunkRes.json();
+        parts.push({ part_number: i + 1, etag: chunkData.etag });
       }
+
+      // 3. Финализируем
+      await fetch(`${API_URL}?action=finish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: uploadKey, upload_id: uploadId, parts }),
+      });
 
       await fetchFiles();
     } catch (e) {
-      console.error("Исключение при загрузке:", e);
+      console.error("Ошибка загрузки:", e);
+      // Отменяем незавершённый upload
+      if (uploadKey && uploadId) {
+        fetch(`${API_URL}?action=abort`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: uploadKey, upload_id: uploadId }),
+        }).catch(() => {});
+      }
     } finally {
       setUploading(false);
       setUploadProgress(null);
