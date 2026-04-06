@@ -97,25 +97,24 @@ export default function Index() {
     setUploading(true);
     setUploadProgress(`Загружаю: ${file.name}`);
     try {
-      const reader = new FileReader();
-      const fileData: string = await new Promise((resolve, reject) => {
-        reader.onload = () => {
-          const result = reader.result as string;
-          resolve(result.split(",")[1]);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      await fetch(API_URL, {
+      // Шаг 1: получаем presigned URL от бэкенда
+      const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          file_data: fileData,
           file_name: file.name,
           file_type: file.type || "application/octet-stream",
         }),
       });
+      const { upload_url } = await res.json();
+
+      // Шаг 2: загружаем файл напрямую в S3
+      await fetch(upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+
       await fetchFiles();
     } finally {
       setUploading(false);
