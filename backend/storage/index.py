@@ -1,6 +1,5 @@
 """
-Облачное хранилище: multipart загрузка по чанкам, список и удаление файлов.
-action передаётся в теле JSON запроса.
+Облачное хранилище: загрузка через put_object, список и удаление файлов.
 """
 
 import json
@@ -65,84 +64,34 @@ def handler(event: dict, context) -> dict:
             'body': json.dumps({'files': files}),
         }
 
+    # POST — загрузка файла
     if method == 'POST':
         raw_body = event.get('body', '{}') or '{}'
         if event.get('isBase64Encoded'):
             raw_body = base64.b64decode(raw_body).decode('utf-8')
+
         body = json.loads(raw_body)
-        action = body.get('action', '')
+        file_name = body.get('file_name', 'file')
+        file_type = body.get('file_type', 'application/octet-stream')
+        file_data_b64 = body.get('file_data', '')
 
-        # start — начать multipart upload
-        if action == 'start':
-            file_name = body.get('file_name', 'file')
-            file_type = body.get('file_type', 'application/octet-stream')
-            safe_name = urllib.parse.quote(file_name, safe='.-_()')
-            key = f"{PREFIX}{safe_name}"
+        file_bytes = base64.b64decode(file_data_b64)
+        safe_name = urllib.parse.quote(file_name, safe='.-_()')
+        key = f"{PREFIX}{safe_name}"
 
-            resp = s3.create_multipart_upload(Bucket=BUCKET, Key=key, ContentType=file_type)
-            upload_id = resp['UploadId']
-            cdn_url = f"https://cdn.poehali.dev/projects/{access_key}/bucket/{key}"
-            return {
-                'statusCode': 200,
-                'headers': {**CORS_HEADERS, 'Content-Type': 'application/json'},
-                'body': json.dumps({'upload_id': upload_id, 'key': key, 'cdn_url': cdn_url}),
-            }
+        s3.put_object(
+            Bucket=BUCKET,
+            Key=key,
+            Body=file_bytes,
+            ContentType=file_type,
+        )
 
-        # chunk — загрузить часть
-        if action == 'chunk':
-            key = body.get('key')
-            upload_id = body.get('upload_id')
-            part_number = int(body.get('part_number', 1))
-            chunk_b64 = body.get('chunk_data', '')
-
-            chunk_bytes = base64.b64decode(chunk_b64)
-            resp = s3.upload_part(
-                Bucket=BUCKET,
-                Key=key,
-                UploadId=upload_id,
-                PartNumber=part_number,
-                Body=chunk_bytes,
-            )
-            # ETag может быть в разных регистрах
-            etag = resp.get('ETag') or resp.get('etag', '')
-            return {
-                'statusCode': 200,
-                'headers': {**CORS_HEADERS, 'Content-Type': 'application/json'},
-                'body': json.dumps({'etag': etag, 'part_number': part_number}),
-            }
-
-        # finish — завершить multipart upload
-        if action == 'finish':
-            key = body.get('key')
-            upload_id = body.get('upload_id')
-            parts = body.get('parts', [])
-
-            s3.complete_multipart_upload(
-                Bucket=BUCKET,
-                Key=key,
-                UploadId=upload_id,
-                MultipartUpload={
-                    'Parts': [{'PartNumber': p['part_number'], 'ETag': p['etag']} for p in parts]
-                },
-            )
-            cdn_url = f"https://cdn.poehali.dev/projects/{access_key}/bucket/{key}"
-            return {
-                'statusCode': 200,
-                'headers': {**CORS_HEADERS, 'Content-Type': 'application/json'},
-                'body': json.dumps({'success': True, 'url': cdn_url}),
-            }
-
-        # abort — отменить при ошибке
-        if action == 'abort':
-            key = body.get('key')
-            upload_id = body.get('upload_id')
-            if key and upload_id:
-                s3.abort_multipart_upload(Bucket=BUCKET, Key=key, UploadId=upload_id)
-            return {
-                'statusCode': 200,
-                'headers': {**CORS_HEADERS, 'Content-Type': 'application/json'},
-                'body': json.dumps({'success': True}),
-            }
+        cdn_url = f"https://cdn.poehali.dev/projects/{access_key}/bucket/{key}"
+        return {
+            'statusCode': 200,
+            'headers': {**CORS_HEADERS, 'Content-Type': 'application/json'},
+            'body': json.dumps({'success': True, 'url': cdn_url, 'key': key, 'name': file_name}),
+        }
 
     # DELETE — удаление файла
     if method == 'DELETE':
