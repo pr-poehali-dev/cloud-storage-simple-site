@@ -42,6 +42,8 @@ def handler(event: dict, context) -> dict:
     # GET — список файлов
     if method == 'GET':
         response = s3.list_objects_v2(Bucket=BUCKET, Prefix=PREFIX)
+        all_keys = [o['Key'] for o in response.get('Contents', [])]
+        print(f"[LIST] prefix={PREFIX} found={len(all_keys)} keys={all_keys[:5]}")
         files = []
         for obj in response.get('Contents', []):
             key = obj['Key']
@@ -75,16 +77,20 @@ def handler(event: dict, context) -> dict:
         file_type = body.get('file_type', 'application/octet-stream')
         file_data_b64 = body.get('file_data', '')
 
+        print(f"[UPLOAD] file_name={file_name} file_type={file_type} b64_len={len(file_data_b64)}")
+
         file_bytes = base64.b64decode(file_data_b64)
         safe_name = urllib.parse.quote(file_name, safe='.-_()')
         key = f"{PREFIX}{safe_name}"
 
+        print(f"[UPLOAD] putting key={key} size={len(file_bytes)}")
         s3.put_object(
             Bucket=BUCKET,
             Key=key,
             Body=file_bytes,
             ContentType=file_type,
         )
+        print(f"[UPLOAD] done key={key}")
 
         cdn_url = f"https://cdn.poehali.dev/projects/{access_key}/bucket/{key}"
         return {
