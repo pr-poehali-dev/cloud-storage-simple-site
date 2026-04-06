@@ -97,7 +97,7 @@ export default function Index() {
     setUploading(true);
     setUploadProgress(`Загружаю: ${file.name}`);
     try {
-      // Шаг 1: получаем presigned URL от бэкенда
+      // Шаг 1: получаем presigned URL
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -106,16 +106,30 @@ export default function Index() {
           file_type: file.type || "application/octet-stream",
         }),
       });
-      const { upload_url } = await res.json();
+      if (!res.ok) {
+        console.error("Ошибка получения presigned URL:", res.status, await res.text());
+        return;
+      }
+      const data = await res.json();
+      const upload_url: string = data.upload_url;
+      console.log("presigned URL получен, загружаю файл...", upload_url);
 
       // Шаг 2: загружаем файл напрямую в S3
-      await fetch(upload_url, {
+      const putRes = await fetch(upload_url, {
         method: "PUT",
         headers: { "Content-Type": file.type || "application/octet-stream" },
         body: file,
       });
+      console.log("PUT результат:", putRes.status);
+      if (!putRes.ok) {
+        const errText = await putRes.text();
+        console.error("Ошибка загрузки в S3:", putRes.status, errText);
+        return;
+      }
 
       await fetchFiles();
+    } catch (e) {
+      console.error("Исключение при загрузке:", e);
     } finally {
       setUploading(false);
       setUploadProgress(null);
