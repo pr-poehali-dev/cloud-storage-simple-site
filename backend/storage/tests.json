@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "GET список файлов",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {"files": []},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
