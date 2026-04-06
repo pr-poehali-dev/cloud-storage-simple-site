@@ -172,7 +172,7 @@ export default function Index() {
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center animate-pulse-glow">
               <Icon name="Cloud" size={16} className="text-white" />
             </div>
-            <span className="font-bold text-lg gradient-text">CloudDrop</span>
+            <span className="font-bold text-lg gradient-text">Informatika Cloud</span>
           </button>
           <div className="flex items-center gap-2">
             <button
