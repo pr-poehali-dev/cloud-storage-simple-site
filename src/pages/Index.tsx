@@ -104,10 +104,11 @@ export default function Index() {
 
     try {
       // 1. Старт multipart upload
-      const startRes = await fetch(`${API_URL}?action=start`, {
+      const startRes = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "start",
           file_name: file.name,
           file_type: file.type || "application/octet-stream",
         }),
@@ -131,10 +132,11 @@ export default function Index() {
           reader.readAsDataURL(chunk);
         });
 
-        const chunkRes = await fetch(`${API_URL}?action=chunk`, {
+        const chunkRes = await fetch(API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            action: "chunk",
             key: uploadKey,
             upload_id: uploadId,
             part_number: i + 1,
@@ -146,21 +148,20 @@ export default function Index() {
       }
 
       // 3. Финализируем
-      await fetch(`${API_URL}?action=finish`, {
+      await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: uploadKey, upload_id: uploadId, parts }),
+        body: JSON.stringify({ action: "finish", key: uploadKey, upload_id: uploadId, parts }),
       });
 
       await fetchFiles();
     } catch (e) {
       console.error("Ошибка загрузки:", e);
-      // Отменяем незавершённый upload
       if (uploadKey && uploadId) {
-        fetch(`${API_URL}?action=abort`, {
+        fetch(API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key: uploadKey, upload_id: uploadId }),
+          body: JSON.stringify({ action: "abort", key: uploadKey, upload_id: uploadId }),
         }).catch(() => {});
       }
     } finally {
