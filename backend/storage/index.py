@@ -1,9 +1,11 @@
 """
-Облачное хранилище: список, удаление файлов + presigned URL для прямой загрузки в S3.
+Облачное хранилище: загрузка (base64), список и удаление файлов через S3.
+Поддерживает любые типы файлов и русские названия.
 """
 
 import json
 import os
+import base64
 import boto3
 import urllib.parse
 
@@ -63,35 +65,34 @@ def handler(event: dict, context) -> dict:
             'body': json.dumps({'files': files}),
         }
 
-    # POST — получить presigned URL для загрузки
+    # POST — загрузка файла через base64
     if method == 'POST':
-        body = json.loads(event.get('body', '{}'))
+        is_base64 = event.get('isBase64Encoded', False)
+        raw_body = event.get('body', '')
+        if is_base64:
+            raw_body = base64.b64decode(raw_body).decode('utf-8')
+
+        body = json.loads(raw_body)
+        file_data_b64 = body.get('file_data', '')
         file_name = body.get('file_name', 'file')
         file_type = body.get('file_type', 'application/octet-stream')
 
+        file_bytes = base64.b64decode(file_data_b64)
         safe_name = urllib.parse.quote(file_name, safe='.-_()')
         key = f"{PREFIX}{safe_name}"
 
-        presigned_url = s3.generate_presigned_url(
-            'put_object',
-            Params={
-                'Bucket': BUCKET,
-                'Key': key,
-                'ContentType': file_type,
-            },
-            ExpiresIn=300,
+        s3.put_object(
+            Bucket=BUCKET,
+            Key=key,
+            Body=file_bytes,
+            ContentType=file_type,
         )
 
         cdn_url = f"https://cdn.poehali.dev/projects/{access_key}/bucket/{key}"
         return {
             'statusCode': 200,
             'headers': {**CORS_HEADERS, 'Content-Type': 'application/json'},
-            'body': json.dumps({
-                'upload_url': presigned_url,
-                'key': key,
-                'cdn_url': cdn_url,
-                'name': file_name,
-            }),
+            'body': json.dumps({'success': True, 'url': cdn_url, 'key': key, 'name': file_name}),
         }
 
     # DELETE — удаление файла

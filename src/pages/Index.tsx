@@ -97,33 +97,29 @@ export default function Index() {
     setUploading(true);
     setUploadProgress(`Загружаю: ${file.name}`);
     try {
-      // Шаг 1: получаем presigned URL
+      const fileData: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(",")[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          file_data: fileData,
           file_name: file.name,
           file_type: file.type || "application/octet-stream",
         }),
       });
-      if (!res.ok) {
-        console.error("Ошибка получения presigned URL:", res.status, await res.text());
-        return;
-      }
-      const data = await res.json();
-      const upload_url: string = data.upload_url;
-      console.log("presigned URL получен, загружаю файл...", upload_url);
 
-      // Шаг 2: загружаем файл напрямую в S3
-      const putRes = await fetch(upload_url, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      });
-      console.log("PUT результат:", putRes.status);
-      if (!putRes.ok) {
-        const errText = await putRes.text();
-        console.error("Ошибка загрузки в S3:", putRes.status, errText);
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        console.error("Ошибка загрузки:", data);
         return;
       }
 
@@ -341,8 +337,12 @@ export default function Index() {
                 ref={fileInputRef}
                 type="file"
                 multiple
+                accept="*/*"
                 className="hidden"
-                onChange={(e) => e.target.files && handleFiles(e.target.files)}
+                onChange={(e) => {
+                  if (e.target.files) handleFiles(e.target.files);
+                  e.target.value = "";
+                }}
               />
             </div>
           </div>
